@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: XXXXXXXX-env
+
+  VPCA:
+    Description: "VPC ID : vpc-XXXXXXXX"
+    Type: String
+    Default: vpc-XXXXXXXX
+
+  # TGWをアタッチメントする方のSubnet
+  SubnetA:
+    Description: "transitgateway attachment VPCA : subnet-XXXXXXXX"
+    Type: String
+    Default: subnet-XXXXXXXX
+
+  # EC2がある方のSubnetのRouteTable
+  RouteTableA:
+    Description: "VPCA Subnet RouteTable : rtb-xxxxxxxxxxxxxxx"
+    Type: String
+    Default: rtb-xxxxxxxxxxxxxxx
+
+  VPCB:
+    Description: "VPC ID : vpc-XXXXXXXX"
+    Type: String
+    Default: vpc-XXXXXXXX
+
+  # TGWをアタッチメントする方のSubnet
+  SubnetB:
+    Description: "transitgateway attachment VPCB : subnet-XXXXXXXX"
+    Type: String
+    Default: subnet-XXXXXXXX
+
+  # EC2がある方のSubnetのRouteTable
+  RouteTableB:
+    Description: "VPCB Subnet RouteTable : rtb-xxxxxxxxxxxxxxx"
+    Type: String
+    Default: rtb-xxxxxxxxxxxxxxx
+
+Resources:
+  TGW:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      AutoAcceptSharedAttachments: enable
+      DefaultRouteTableAssociation: enable
+      DefaultRouteTablePropagation: enable
+      VpnEcmpSupport: enable
+      DnsSupport: enable
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-TGW
+
+  VPCAattachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      SubnetIds:
+        - !Ref SubnetA
+      TransitGatewayId: !Ref TGW
+      VpcId: !Ref VPCA
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-A-attachment
+
+  VPCBattachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      SubnetIds:
+        - !Ref SubnetB
+      TransitGatewayId: !Ref TGW
+      VpcId: !Ref VPCB
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-B-attachment
+
+  VPCATGWRoute:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref RouteTableA
+      DestinationCidrBlock: 10.204.0.0/16
+      TransitGatewayId: !Ref TGW
+    DependsOn: VPCAattachment
+
+  VPCBTGWRoute:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref RouteTableB
+      DestinationCidrBlock: 10.192.0.0/16
+      TransitGatewayId: !Ref TGW
+    DependsOn: VPCBattachment
+
+  EC2SecurityGroupPingA:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EC2SecurityGroupPingA
+      GroupName: !Sub ${EnvironmentName}-EC2SecurityGroupPingA
+      VpcId: !Ref VPCA
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-EC2SecurityGroupPingA
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.204.0.0/16
+
+  EC2SecurityGroupPingB:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EC2SecurityGroupPingB
+      GroupName: !Sub ${EnvironmentName}-EC2SecurityGroupPingB
+      VpcId: !Ref VPCB
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-EC2SecurityGroupPingB
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 10.192.0.0/24
+
+Outputs:
+  TGW:
+    Value: !Ref TGW
+    Export:
+      Name: !Sub ${EnvironmentName}-TGW
+
+  VPCAattachment:
+    Value: !Ref VPCAattachment
+    Export:
+      Name: !Sub ${EnvironmentName}-A-attachment
+
+  VPCBattachment:
+    Value: !Ref VPCBattachment
+    Export:
+      Name: !Sub ${EnvironmentName}-B-attachment
+
+  EC2SecurityGroupPingA:
+    Value: !Ref EC2SecurityGroupPingA
+    Export:
+      Name: !Sub ${EnvironmentName}-EC2SecurityGroupPingA
+
+  EC2SecurityGroupPingB:
+    Value: !Ref EC2SecurityGroupPingB
+    Export:
+      Name: !Sub ${EnvironmentName}-EC2SecurityGroupPingB
