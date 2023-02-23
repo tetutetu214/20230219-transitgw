@@ -1,147 +1,483 @@
-AWSTemplateFormatVersion: "2010-09-09"
+AWSTemplateFormatVersion: 2010-09-09
+Description: TGW Create
+# ------------------------------------------------------------#
+#  Metadata
+# ------------------------------------------------------------#
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: "NetWork Configuration"
+        Parameters:
+          - VpcCidrPrefix1
+          - VpcCidrPrefix2
+      - Label:
+          default: "EC2 Configuration"
+        Parameters:
+          - Ec2ImageAmazonlinuxId
+          - KeyName
+      - Label:
+          default: "Tags"
+        Parameters:
+          - UserName
 
+# ------------------------------------------------------------#
+#  InputParameters
+# ------------------------------------------------------------#
 Parameters:
-  EnvironmentName:
+  VpcCidrPrefix1:
     Type: String
-    Default: XXXXXXXX-env
+    Description: '(Example: 192.168)'
+    Default: 192.168
 
-  VPCA:
-    Description: "VPC ID : vpc-XXXXXXXX"
+  VpcCidrPrefix2:
     Type: String
-    Default: vpc-XXXXXXXX
+    Description: '(Example: 10.0)'
+    Default: 10.0
 
-  # TGWをアタッチメントする方のSubnet
-  SubnetA:
-    Description: "transitgateway attachment VPCA : subnet-XXXXXXXX"
+  Ec2ImageAmazonlinuxId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: inamura
+
+  UserName:
     Type: String
-    Default: subnet-XXXXXXXX
+    Description: 'TagsName'
+    Default: inamura
 
-  # EC2がある方のSubnetのRouteTable
-  RouteTableA:
-    Description: "VPCA Subnet RouteTable : rtb-xxxxxxxxxxxxxxx"
-    Type: String
-    Default: rtb-xxxxxxxxxxxxxxx
 
-  VPCB:
-    Description: "VPC ID : vpc-XXXXXXXX"
-    Type: String
-    Default: vpc-XXXXXXXX
-
-  # TGWをアタッチメントする方のSubnet
-  SubnetB:
-    Description: "transitgateway attachment VPCB : subnet-XXXXXXXX"
-    Type: String
-    Default: subnet-XXXXXXXX
-
-  # EC2がある方のSubnetのRouteTable
-  RouteTableB:
-    Description: "VPCB Subnet RouteTable : rtb-xxxxxxxxxxxxxxx"
-    Type: String
-    Default: rtb-xxxxxxxxxxxxxxx
-
+# ------------------------------------------------------------#
+#  Resources
+# ------------------------------------------------------------#
 Resources:
+# ------------------------------------------------------------#
+#  BoundaryVPC
+# ------------------------------------------------------------#
+  BoundaryVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Sub '${VpcCidrPrefix1}.0.0/16'
+      InstanceTenancy: default
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-boundary-vpc'
+        - Key: UserName
+          Value: !Ref UserName
+# ------------------------------------------------------------#
+#  Public Subnet
+# ------------------------------------------------------------#
+  BoundaryNATPublicSubnet: 
+    Type: "AWS::EC2::Subnet"
+    Properties: 
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      CidrBlock: !Sub '${VpcCidrPrefix1}.10.0/24'
+      VpcId: !Ref BoundaryVPC 
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-nat-boundary-public"
+        - Key: User
+          Value: !Ref UserName
+
+# ------------------------------------------------------------#
+#  Private Subnet
+# ------------------------------------------------------------#
+  BoundaryTGWPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      CidrBlock: !Sub '${VpcCidrPrefix1}.20.0/24'
+      VpcId: !Ref BoundaryVPC 
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-tgw-boundary-private"
+        - Key: User
+          Value: !Ref UserName
+
+# ------------------------------------------------------------#
+#  IGW
+# ------------------------------------------------------------#
+  BoundaryIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties: 
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-boundary-igw'
+
+  BoundaryVPCGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref BoundaryVPC
+      InternetGatewayId: !Ref BoundaryIGW
+
+# ------------------------------------------------------------#
+#  EIP NATGW
+# ------------------------------------------------------------#
+  BoundaryNatEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  BoundaryNatGW:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      SubnetId: !Ref BoundaryNATPublicSubnet
+      AllocationId: !GetAtt BoundaryNatEIP.AllocationId
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-boundary-natgateway"
+
+# ------------------------------------------------------------#
+#  Routetable NAT
+# ------------------------------------------------------------#
+  BoundaryNatSubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref BoundaryVPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-natgateway-boundary-routetable"
+        - Key: User
+          Value: !Ref UserName
+
+# ------------------------------------------------------------#
+#  Routetable TGW
+# ------------------------------------------------------------#
+  BoundaryTgwSubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref BoundaryVPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-transitgw-boundary-routetable"
+        - Key: User
+          Value: !Ref UserName
+
+# ------------------------------------------------------------#
+# Routing NAT
+# ------------------------------------------------------------#
+  BoundaryVpcNatSubnetToDefault:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref BoundaryNatSubnetRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref BoundaryIGW
+
+  BoundaryVpcNatSubnetToTGW:
+    DependsOn: AccessVPC
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RtbBoundaryVpcNatSubnet
+      DestinationCidrBlock: !Sub '${VpcCidrPrefix2}.0.0/16'
+      TransitGatewayId: !Ref TGW
+
+  BoundaryVpcNatSubnet:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref BoundaryNATPublicSubnet
+      RouteTableId: !Ref BoundaryNatSubnetRouteTable
+
+# ------------------------------------------------------------#
+# Routing TransitGW
+# ------------------------------------------------------------#
+  BoundaryVpcTgwSubnetToNat:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref BoundaryTgwSubnetRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref BoundaryNatGW
+
+  BoundaryVpcTgwSubnet:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref wstgwBoundaryVpcTgwSubnet
+      RouteTableId: !Ref BoundaryNatGW
+
+# ------------------------------------------------------------#
+# TransitGW
+# ------------------------------------------------------------#
   TGW:
     Type: AWS::EC2::TransitGateway
     Properties:
+      AmazonSideAsn: 65000
       AutoAcceptSharedAttachments: enable
       DefaultRouteTableAssociation: enable
       DefaultRouteTablePropagation: enable
-      VpnEcmpSupport: enable
+      Description: !Join ['-', [TGW, !Ref 'AWS::Region']]
       DnsSupport: enable
-      Tags:
+      VpnEcmpSupport: enable
+      MulticastSupport: disable
+      Tags: 
         - Key: Name
-          Value: !Sub ${EnvironmentName}-TGW
+          Value: "${AWS::StackName}-tgw"
+        - Key: User
+          Value: !Ref UserName
 
-  VPCAattachment:
+  AttachmentTgwBoundaryVpc:
     Type: AWS::EC2::TransitGatewayAttachment
     Properties:
-      SubnetIds:
-        - !Ref SubnetA
+      SubnetIds: 
+        - !Ref BoundaryTGWPrivateSubnet
       TransitGatewayId: !Ref TGW
-      VpcId: !Ref VPCA
-      Tags:
+      VpcId: !Ref BoundaryVPC
+      Tags: 
         - Key: Name
-          Value: !Sub ${EnvironmentName}-A-attachment
+          Value: !Sub "${AWS::StackName}-boundry-tgw"
+        - Key: User
+          Value: !Ref UserName
 
-  VPCBattachment:
+  AttachmentTgwAccessVpc:
     Type: AWS::EC2::TransitGatewayAttachment
     Properties:
-      SubnetIds:
-        - !Ref SubnetB
+      SubnetIds: 
+        - !Ref AccessTGWPrivatSubnet
       TransitGatewayId: !Ref TGW
-      VpcId: !Ref VPCB
+      VpcId: !Ref AccessVPC
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-boundry-tgw"
+        - Key: User
+          Value: !Ref UserName
+# ------------------------------------------------------------#
+# AccessVPC
+# ------------------------------------------------------------#
+  AccessVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Sub '${VpcCidrPrefix1}.0.0/16'
+      InstanceTenancy: default
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !Sub ${EnvironmentName}-B-attachment
+          Value: !Sub '${AWS::StackName}-access-vpc'
+        - Key: UserName
+          Value: !Ref UserName
+# ------------------------------------------------------------#
+#  Private Subnet
+# ------------------------------------------------------------#
+  AccessTGWPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      CidrBlock: !Sub '${VpcCidrPrefix2}.20.0/24'
+      VpcId: !Ref BoundaryVPC 
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-tgw-access-private"
+        - Key: User
+          Value: !Ref UserName
 
-  VPCATGWRoute:
-    Type: "AWS::EC2::Route"
+  AccessEC2PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      CidrBlock: !Sub '${VpcCidrPrefix2}.30.0/24'
+      VpcId: !Ref BoundaryVPC 
+      Tags: 
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ec2-access-private"
+        - Key: User
+          Value: !Ref UserName
+
+# ------------------------------------------------------------#
+#  Routetable TGW
+# ------------------------------------------------------------#
+  AccessTgwSubnetRouteTable:
+    Type: AWS::EC2::RouteTable
     Properties:
-      RouteTableId: !Ref RouteTableA
-      DestinationCidrBlock: 10.204.0.0/16
-      TransitGatewayId: !Ref TGW
-    DependsOn: VPCAattachment
-
-  VPCBTGWRoute:
-    Type: "AWS::EC2::Route"
+      VpcId: !Ref AccessVPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-transigw-access-routetable"
+        - Key: User
+          Value: !Ref UserName
+# ------------------------------------------------------------#
+# Routing TGW
+# ------------------------------------------------------------#
+  AccessVpcTgwsubnettoTGW:
+#    DependsOn: AccessVPC
+    Type: AWS::EC2::Route
     Properties:
-      RouteTableId: !Ref RouteTableB
-      DestinationCidrBlock: 10.192.0.0/16
+      RouteTableId: !Ref AccessTgwSubnetRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
       TransitGatewayId: !Ref TGW
-    DependsOn: VPCBattachment
 
-  EC2SecurityGroupPingA:
+  AccessVpcEC2toTGW:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AccessTGWPrivateSubnet
+      RouteTableId: !Ref AccessTgwSubnetRouteTable
+
+# ------------------------------------------------------------#
+#  EC2
+# ------------------------------------------------------------#
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      SubnetId: !Ref AccessEC2PrivateSubnet
+      ImageId: !Ref Ec2ImageAmazonlinuxId
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      KeyName: !Ref KeyName
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-access-ec2"
+        - Key: User
+          Value: !Ref UserName
+
+# ------------------------------------------------------------#
+#  EC2 Role
+# ------------------------------------------------------------#
+  EC2IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-access-iam"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - Ref: EC2IAMRole
+      InstanceProfileName: !Sub "${AWS::StackName}-access-EC2InstanceProfile"
+# ------------------------------------------------------------#
+#  EC2 SG
+# ------------------------------------------------------------#
+  EC2SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: EC2SecurityGroupPingA
-      GroupName: !Sub ${EnvironmentName}-EC2SecurityGroupPingA
-      VpcId: !Ref VPCA
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName}-EC2SecurityGroupPingA
+      GroupDescription: EC2SecurityGroup
+      VpcId: !Ref AccessVPC
       SecurityGroupIngress:
         - IpProtocol: icmp
           FromPort: -1
           ToPort: -1
-          CidrIp: 10.204.0.0/16
-
-  EC2SecurityGroupPingB:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: EC2SecurityGroupPingB
-      GroupName: !Sub ${EnvironmentName}-EC2SecurityGroupPingB
-      VpcId: !Ref VPCB
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName}-EC2SecurityGroupPingB
-      SecurityGroupIngress:
+          CidrIp: "10.0.0.0/8"
         - IpProtocol: icmp
           FromPort: -1
           ToPort: -1
-          CidrIp: 10.192.0.0/24
+          CidrIp: "192.168.0.0/16"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-access-EC2SecurityGroup"
+        - Key: User
+          Value: !Ref UserName
 
-Outputs:
-  TGW:
-    Value: !Ref TGW
-    Export:
-      Name: !Sub ${EnvironmentName}-TGW
+# ------------------------------------------------------------#
+#  Endpoint
+# ------------------------------------------------------------#
+  EndpointSSM:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref EndpointSecurityGroup
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssm
+      SubnetIds:
+        - !Ref AccessEC2PrivateSubnet
+      VpcEndpointType: Interface
+      VpcId: !Ref AccessVPC
 
-  VPCAattachment:
-    Value: !Ref VPCAattachment
-    Export:
-      Name: !Sub ${EnvironmentName}-A-attachment
+  EndpointSSMMessages:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref EndpointSecurityGroup
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssmmessages
+      SubnetIds:
+        - !Ref AccessEC2PrivateSubnet
+      VpcEndpointType: Interface
+      VpcId: !Ref AccessVPC
 
-  VPCBattachment:
-    Value: !Ref VPCBattachment
-    Export:
-      Name: !Sub ${EnvironmentName}-B-attachment
+  EndpointEC2Messages:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref EndpointSecurityGroup
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ec2messages
+      SubnetIds:
+        - !Ref AccessEC2PrivateSubnet
+      VpcEndpointType: Interface
+      VpcId: !Ref AccessVPC
+# ------------------------------------------------------------#
+#  Endpoint SG
+# ------------------------------------------------------------#
+  EndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EndpointSecurityGroup
+      VpcId: !Ref AccessVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-access-EndpointSecurityGroup'
+        - Key: User
+          Value: !Ref UserName
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Sub '${VpcCidrPrefix1}.0.0/16'
 
-  EC2SecurityGroupPingA:
-    Value: !Ref EC2SecurityGroupPingA
-    Export:
-      Name: !Sub ${EnvironmentName}-EC2SecurityGroupPingA
+# ------------------------------------------------------------#
+#  Outputs
+# ------------------------------------------------------------#
 
-  EC2SecurityGroupPingB:
-    Value: !Ref EC2SecurityGroupPingB
-    Export:
-      Name: !Sub ${EnvironmentName}-EC2SecurityGroupPingB
+# Outputs:
+#   wstgwTgw:
+#     Description: Tgw
+#     Value: !Ref wstgwTgw
+#     Export:
+#       Name: wstgwTgw
+
+#   wstgwBoundaryVpc:
+#     Description: BoundaryVpc
+#     Value: !Ref wstgwBoundaryVpc
+#     Export:
+#       Name: wstgwBoundaryVpc
+
+#   wstgwPrivateVpc1:
+#     Description: PrivateVpc1
+#     Value: !Ref wstgwPrivateVpc1
+#     Export:
+#       Name: wstgwPrivateVpc1
+
+#   wstgwEc2Instance192x168x1x100:
+#     Description: wstgwEc2Instance192-168-1-100
+#     Value: !Ref wstgwEc2Instance192x168x1x100
+#     Export:
+#       Name: wstgwEc2Instance192-168-1-100
+
+#   wstgwEc2Instance10x0x1x100:
+#     Description: wstgwEc2Instance10-0-1-100
+#     Value: !Ref wstgwEc2Instance10x0x1x100
+#     Export:
+#       Name: wstgwEc2Instance10-0-1-100
