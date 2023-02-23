@@ -230,7 +230,7 @@ Resources:
       VpcId: !Ref BoundaryVPC
       Tags: 
         - Key: Name
-          Value: !Sub "${AWS::StackName}-boundry-tgw"
+          Value: !Sub "${AWS::StackName}-boundary-tgw"
         - Key: User
           Value: !Ref UserName
 
@@ -243,7 +243,7 @@ Resources:
       VpcId: !Ref AccessVPC
       Tags: 
         - Key: Name
-          Value: !Sub "${AWS::StackName}-boundry-tgw"
+          Value: !Sub "${AWS::StackName}-access-tgw"
         - Key: User
           Value: !Ref UserName
 # ------------------------------------------------------------#
@@ -252,7 +252,7 @@ Resources:
   AccessVPC:
     Type: AWS::EC2::VPC
     Properties:
-      CidrBlock: !Sub '${VpcCidrPrefix1}.0.0/16'
+      CidrBlock: !Sub '${VpcCidrPrefix2}.0.0/16'
       InstanceTenancy: default
       EnableDnsSupport: true
       EnableDnsHostnames: true
@@ -271,7 +271,7 @@ Resources:
         - 1
         - Fn::GetAZs: !Ref 'AWS::Region'
       CidrBlock: !Sub '${VpcCidrPrefix2}.20.0/24'
-      VpcId: !Ref BoundaryVPC 
+      VpcId: !Ref AccessVPC 
       Tags: 
         - Key: Name
           Value: !Sub "${AWS::StackName}-tgw-access-private"
@@ -279,13 +279,14 @@ Resources:
           Value: !Ref UserName
 
   AccessEC2PrivateSubnet:
+    DependsOn: AccessVPC
     Type: AWS::EC2::Subnet
     Properties: 
       AvailabilityZone: !Select
         - 1
         - Fn::GetAZs: !Ref 'AWS::Region'
       CidrBlock: !Sub '${VpcCidrPrefix2}.30.0/24'
-      VpcId: !Ref BoundaryVPC 
+      VpcId: !Ref AccessVPC 
       Tags: 
         - Key: Name
           Value: !Sub "${AWS::StackName}-ec2-access-private"
@@ -308,7 +309,7 @@ Resources:
 # Routing TGW
 # ------------------------------------------------------------#
   AccessVpcTgwsubnettoTGW:
-#    DependsOn: AccessVPC
+    DependsOn: BoundaryVPC
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref AccessTgwSubnetRouteTable
