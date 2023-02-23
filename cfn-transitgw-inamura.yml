@@ -172,7 +172,7 @@ Resources:
       GatewayId: !Ref BoundaryIGW
 
   BoundaryVpcNatSubnetToTGW:
-    DependsOn: AccessVPC
+    DependsOn: AttachmentTgwBoundaryVpc
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref BoundaryNatSubnetRouteTable
@@ -195,11 +195,19 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       NatGatewayId: !Ref BoundaryNatGW
 
+  BoundaryVpcTgwSubnetToTGW:
+    DependsOn: AttachmentTgwBoundaryVpc
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref BoundaryTgwSubnetRouteTable
+      DestinationCidrBlock: !Sub '${VpcCidrPrefix2}.0.0/16'
+      TransitGatewayId: !Ref TGW
+
   BoundaryVpcTgwSubnet:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref BoundaryTGWPrivateSubnet
-      RouteTableId: !Ref BoundaryNatGW
+      RouteTableId: !Ref BoundaryTgwSubnetRouteTable
 
 # ------------------------------------------------------------#
 # TransitGW
@@ -279,7 +287,6 @@ Resources:
           Value: !Ref UserName
 
   AccessEC2PrivateSubnet:
-    DependsOn: AccessVPC
     Type: AWS::EC2::Subnet
     Properties: 
       AvailabilityZone: !Select
@@ -309,7 +316,7 @@ Resources:
 # Routing TGW
 # ------------------------------------------------------------#
   AccessVpcTgwsubnettoTGW:
-    DependsOn: BoundaryVPC
+    DependsOn: AttachmentTgwAccessVpc
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref AccessTgwSubnetRouteTable
