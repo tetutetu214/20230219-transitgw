@@ -175,7 +175,7 @@ Resources:
     DependsOn: AccessVPC
     Type: AWS::EC2::Route
     Properties:
-      RouteTableId: !Ref RtbBoundaryVpcNatSubnet
+      RouteTableId: !Ref BoundaryNatSubnetRouteTable
       DestinationCidrBlock: !Sub '${VpcCidrPrefix2}.0.0/16'
       TransitGatewayId: !Ref TGW
 
@@ -198,7 +198,7 @@ Resources:
   BoundaryVpcTgwSubnet:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref wstgwBoundaryVpcTgwSubnet
+      SubnetId: !Ref BoundaryVpcTgwSubnet
       RouteTableId: !Ref BoundaryNatGW
 
 # ------------------------------------------------------------#
@@ -238,7 +238,7 @@ Resources:
     Type: AWS::EC2::TransitGatewayAttachment
     Properties:
       SubnetIds: 
-        - !Ref AccessTGWPrivatSubnet
+        - !Ref AccessTGWPrivateSubnet
       TransitGatewayId: !Ref TGW
       VpcId: !Ref AccessVPC
       Tags: 
