@@ -32,8 +32,8 @@ Parameters:
 
   VpcCidrPrefix2:
     Type: String
-    Description: '(Example: 10.0)'
-    Default: 10.0
+    Description: '(Example: 172.16)'
+    Default: 172.16
 
   Ec2ImageAmazonlinuxId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>

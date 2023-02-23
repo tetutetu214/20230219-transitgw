@@ -1,0 +1,59 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Create a Global Accelerator.
+Parameters:
+  GAName:
+    Type: String
+    Description: (Required) Enter Global Accelerator Name.
+    Default: ga-https
+  EndpointId:
+    Type: String
+    Description: (Required) Enter Global Accelerator EndpointId (ALB ARN).
+    Default: arn:aws:elasticloadbalancing:ap-northeast-1:~~~ # ALB ARN
+  EndpointRegion:
+    Type: String
+    Description: (Required) Enter Region.
+    Default: ap-northeast-1
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Configuration"
+        Parameters:
+          - "GAName"
+          - "EndpointId"
+          - "EndpointRegion"
+Resources:
+  GA:
+    Type: AWS::GlobalAccelerator::Accelerator
+    Properties: 
+      Enabled: true
+      IpAddressType: "IPV4"
+      Name: !Ref GAName
+      Tags:
+        - Key: "Name"
+          Value: !Ref GAName
+  GAListener:
+    Type: AWS::GlobalAccelerator::Listener
+    Properties: 
+      AcceleratorArn: !Sub ${GA} # Get the ARN of the accelerator
+      ClientAffinity: "NONE"
+      PortRanges: 
+        - FromPort: 443
+          ToPort: 443
+      Protocol: "TCP"
+  GAEndpoint:
+    Type: AWS::GlobalAccelerator::EndpointGroup
+    Properties: 
+      EndpointConfigurations: 
+        - ClientIPPreservationEnabled: false
+          EndpointId: !Ref EndpointId
+          Weight: 128
+      EndpointGroupRegion: !Ref EndpointRegion
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: "/"
+      HealthCheckPort: 80
+      HealthCheckProtocol: "HTTP"
+      ListenerArn: !Ref GAListener
+      ThresholdCount: 3
+      TrafficDialPercentage: 100.0
