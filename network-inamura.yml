@@ -225,7 +225,7 @@ Resources:
       MulticastSupport: disable
       Tags: 
         - Key: Name
-          Value: !Sub "${AWS::StackName}-tgw"
+          Value: "${AWS::StackName}-tgw"
         - Key: User
           Value: !Ref UserName
 
@@ -453,7 +453,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
-          CidrIp: !Sub '${VpcCidrPrefix2}.0.0/16'
+          CidrIp: !Sub '${VpcCidrPrefix1}.0.0/16'
 
 # ------------------------------------------------------------#
 #  Outputs
